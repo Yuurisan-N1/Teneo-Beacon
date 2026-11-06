@@ -430,6 +430,7 @@ Teneo-Beacon/
 │   ├── net/
 │   │   ├── client.rs                    # HTTP client, headers, JSON helpers
 │   │   ├── endpoint.rs                  # API endpoint definitions
+│   │   ├── tunnel.rs					 # HTTP CONNECT/SOCKS5 tunnels and TLS client configuration
 │   │   ├── proxy.rs                     # Proxy parser, loader, and masker
 │   │   └── mod.rs
 │   ├── node/
