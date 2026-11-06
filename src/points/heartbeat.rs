@@ -3,17 +3,16 @@ use serde_json::{json, Value};
 
 use crate::net::{client, endpoint};
 use crate::support::error::refusal;
-use crate::Ctx;
 
 pub struct Beat {
     pub today: u64,
     pub total: u64,
 }
 
-pub async fn send(ctx: &Ctx, token: &str) -> Result<Beat> {
+pub async fn send(shared: &wreq::Client, token: &str) -> Result<Beat> {
     let head = client::bearer(token)?;
     let body = json!({});
-    let (status, value) = client::post_json(&ctx.client, &endpoint::heartbeat(), head, &body).await?;
+    let (status, value) = client::post_json(shared, &endpoint::heartbeat(), head, &body).await?;
     if status != 200 && status != 201 {
         return Err(anyhow!("{}", refusal(status)));
     }
