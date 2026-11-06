@@ -1,0 +1,14 @@
+TeneoBeacon Bot
+
+1. Install Rust 1.75 or newer.
+2. Put the accounts in .env, one line per account, as ACCOUNTS_n=email|token|node count.
+3. Put the node cache in nodeId.json. An empty object is fine on the first run.
+4. Put the proxies in proxy.txt, one line per proxy, or leave the file empty for a direct run.
+5. Run ./run.sh build once.
+6. Run ./run.sh selftest to check the local files.
+7. Run ./run.sh probe to read the beacon state without claiming anything.
+8. Run ./run.sh run for the live loop, or ./run.sh bg to keep it in the background.
+
+The node cache keeps every key that was issued, so a later run keeps the same nodes.
+The claim runs once per cycle and only when the gateway says the boost is due.
+The proxy line is used for the api calls. The relay socket goes out directly.
