@@ -5,6 +5,7 @@ use std::time::Duration;
 use anyhow::Result;
 use tokio::task::JoinHandle;
 
+use crate::net::proxy::{pick, Proxy};
 use crate::support::banner::print_banner;
 use crate::support::log::{countdown, describe, gap, lg, lr, ly, unit_word};
 use crate::Ctx;
@@ -13,6 +14,8 @@ pub async fn run(ctx: &Arc<Ctx>) -> Result<()> {
     let mut handles: Vec<JoinHandle<()>> = Vec::new();
     let mut open_counts: Vec<Arc<AtomicU64>> = Vec::new();
     let mut cycle: u64 = 0;
+    let proxies = crate::net::proxy::load_all(crate::support::consts::net::PROXY_PATH)?;
+    let mut counter: usize = 0;
 
     loop {
         cycle += 1;
@@ -22,7 +25,7 @@ pub async fn run(ctx: &Arc<Ctx>) -> Result<()> {
             if index > 0 {
                 gap();
             }
-            let keys = match crate::node::pool::ensure(ctx, account).await {
+            let keys = match crate::node::pool::ensure(ctx, account, &proxies, &mut counter).await {
                 Ok(keys) => keys,
                 Err(err) => {
                     lr(&format!(
@@ -42,22 +45,27 @@ pub async fn run(ctx: &Arc<Ctx>) -> Result<()> {
             }
 
             if cycle == 1 {
+                let seconds = ctx.cfg.settings.heartbeat_minutes.max(1) * 60;
                 for (position, key) in keys.iter().enumerate() {
                     let label = position + 1;
                     let key = key.clone();
                     let token = account.token.clone();
                     let email = account.email.clone();
                     let open = open.clone();
+                    let pool = proxies.clone();
+                    let seed = counter;
+                    counter += 1;
+                    let beat_ctx = ctx.clone();
+                    let beat_token = token.clone();
+                    let beat_proxy = pick(&pool, seed).cloned();
                     handles.push(tokio::spawn(async move {
-                        relay_loop(key, label, token, email, open).await;
+                        heartbeat_loop(beat_ctx, beat_token, seconds, beat_proxy).await;
                     }));
+                    handles.push(tokio::spawn(async move {
+                        relay_loop(key, label, token, email, open, pool, seed).await;
+                    }));
+                    tokio::time::sleep(Duration::from_secs(2)).await;
                 }
-                let beat_ctx = ctx.clone();
-                let token = account.token.clone();
-                let seconds = ctx.cfg.settings.heartbeat_minutes.max(1) * 60;
-                handles.push(tokio::spawn(async move {
-                    heartbeat_loop(beat_ctx, token, seconds).await;
-                }));
             }
 
             let Some(first) = keys.first() else {
@@ -93,10 +101,14 @@ async fn relay_loop(
     token: String,
     email: String,
     open: Arc<AtomicU64>,
+    pool: Vec<Proxy>,
+    mut cursor: usize,
 ) {
     let mut attempt: u32 = 0;
     loop {
-        match crate::relay::stream::open(&key, &token, &email).await {
+        let proxy = pick(&pool, cursor).cloned();
+        cursor = cursor.wrapping_add(1);
+        match crate::relay::stream::open(&key, &token, &email, proxy.as_ref()).await {
             Ok(ws) => {
                 attempt = 0;
                 open.fetch_add(1, Ordering::Relaxed);
@@ -113,13 +125,11 @@ async fn relay_loop(
             }
             Err(err) => {
                 attempt += 1;
-                if attempt == 1 {
-                    lr(&format!(
-                        "The relay channel number {} could not be opened because {}",
-                        label,
-                        describe(&err)
-                    ));
-                }
+                lr(&format!(
+                    "The relay channel number {} could not be opened because {}",
+                    label,
+                    describe(&err)
+                ));
             }
         }
         let wait = (5u64 << attempt.min(6)).min(300);
@@ -127,9 +137,19 @@ async fn relay_loop(
     }
 }
 
-async fn heartbeat_loop(ctx: Arc<Ctx>, token: String, seconds: u64) {
+async fn heartbeat_loop(ctx: Arc<Ctx>, token: String, seconds: u64, proxy: Option<Proxy>) {
+    let shared = match proxy.as_ref() {
+        Some(found) => match crate::net::client::build(Some(found)) {
+            Ok(built) => built,
+            Err(err) => {
+                lr(&format!("The heartbeat was refused because {}", describe(&err)));
+                ctx.client.clone()
+            }
+        },
+        None => ctx.client.clone(),
+    };
     loop {
-        match crate::points::heartbeat::send(&ctx, &token).await {
+        match crate::points::heartbeat::send(&shared, &token).await {
             Ok(beat) => lg(&format!(
                 "The heartbeat was credited with {} points and the total is {}",
                 beat.today, beat.total
