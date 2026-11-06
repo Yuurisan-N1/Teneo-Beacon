@@ -9,7 +9,7 @@ fn default_retry() -> u32 {
 }
 
 fn default_heartbeat() -> u64 {
-    60
+    15
 }
 
 #[derive(Clone, Deserialize)]
