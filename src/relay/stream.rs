@@ -9,23 +9,17 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{client_async_tls_with_config, MaybeTlsStream, WebSocketStream};
 
 use super::frames::{self, OP_CLOSE, OP_CONNECT, OP_DATA};
+use crate::net::proxy::Proxy;
 use crate::support::consts::{app, net};
 use crate::support::log::lg;
 
 pub type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-pub async fn open(key: &str, token: &str, email: &str) -> Result<Ws> {
-    let mut request = net::WS.into_client_request()?;
-    let head = request.headers_mut();
-    head.insert("Authorization", HeaderValue::from_str(key)?);
-    head.insert("x-api-key", HeaderValue::from_static(app::API_KEY));
-    head.insert("Origin", HeaderValue::from_static(app::ORIGIN));
-    head.insert("User-Agent", HeaderValue::from_static(app::UA));
-    let (mut ws, _) = connect_async(request).await?;
-
+pub async fn open(key: &str, token: &str, email: &str, proxy: Option<&Proxy>) -> Result<Ws> {
+    let mut ws = dial(key, proxy).await?;
     let hello = json!({
         "requestId": uuid::Uuid::new_v4().to_string(),
         "access_token": token,
@@ -33,6 +27,38 @@ pub async fn open(key: &str, token: &str, email: &str) -> Result<Ws> {
     });
     ws.send(Message::Text(hello.to_string().into())).await?;
     Ok(ws)
+}
+
+async fn dial(key: &str, proxy: Option<&Proxy>) -> Result<Ws> {
+    let mut request = net::WS.into_client_request()?;
+    {
+        let head = request.headers_mut();
+        head.insert("Authorization", HeaderValue::from_str(key)?);
+        head.insert("x-api-key", HeaderValue::from_static(app::API_KEY));
+        head.insert("Origin", HeaderValue::from_static(app::ORIGIN));
+        head.insert("User-Agent", HeaderValue::from_static(app::UA));
+    }
+    let (host, port) = target()?;
+    let tcp = match proxy {
+        Some(found) => crate::net::tunnel::connect(found, &host, port).await?,
+        None => crate::net::tunnel::direct(&host, port).await?,
+    };
+    let tls = Some(tokio_tungstenite::Connector::Rustls(
+        crate::net::tunnel::config()?,
+    ));
+    let (ws, _) = client_async_tls_with_config(request, tcp, None, tls).await?;
+    Ok(ws)
+}
+
+fn target() -> Result<(String, u16)> {
+    let raw = net::WS;
+    let rest = raw.strip_prefix("wss://").unwrap_or(raw);
+    let authority = rest.split('/').next().unwrap_or_default();
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((head, tail)) => (head.to_string(), tail.parse::<u16>()?),
+        None => (authority.to_string(), 443),
+    };
+    Ok((host, port))
 }
 
 pub async fn serve(mut ws: Ws) -> Option<u16> {
