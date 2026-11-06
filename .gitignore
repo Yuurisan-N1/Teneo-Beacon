@@ -1,0 +1,7 @@
+/target
+/dist
+.env
+nodeId.json
+nodeId.json.tmp
+*.zip
+*.tgz

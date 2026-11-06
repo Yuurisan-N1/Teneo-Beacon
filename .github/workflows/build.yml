@@ -1,0 +1,79 @@
+name: Build Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build teneo-bot (${{ matrix.artifact }})
+    runs-on: ${{ matrix.os }}
+    env:
+      ORIGIN: ${{ secrets.ORIGIN }}
+      API_KEY: ${{ secrets.API_KEY }}
+      GATEWAY: ${{ secrets.GATEWAY }}
+      API: ${{ secrets.API }}
+      WS: ${{ secrets.WS }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: teneo-bot-windows-x86_64
+            binary: target/release/teneo-bot-windows-x86_64.exe
+            target: ""
+
+          - os: macos-latest
+            artifact: teneo-bot-macos-aarch64
+            binary: target/release/teneo-bot-macos-aarch64
+            target: ""
+
+    steps:
+      - name: Verify required secrets
+        shell: bash
+        run: |
+          for name in ORIGIN API_KEY GATEWAY API WS; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository secret $name is missing."
+              exit 1
+            fi
+          done
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Check formatting
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo fmt --check
+
+      - name: Run tests
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --release --locked
+
+      - name: Build release
+        run: cargo build --release --locked ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.binary }}
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.binary }}
