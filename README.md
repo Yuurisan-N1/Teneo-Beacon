@@ -203,12 +203,6 @@ The proxy is used for the API calls. The relay sockets go out directly and do no
 }
 ```
 
-| Key | Default | Description |
-|---|---|---|
-| `sleep_seconds` | `3600` | Seconds the bot waits between cycles |
-
-The `config.json` that ships with the repository sets `sleep_seconds` to `900`.
-
 ---
 
 ## First-Time Setup
