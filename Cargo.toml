@@ -1,0 +1,30 @@
+[package]
+name = "teneo-bot"
+version = "1.0.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Teneo Beacon node client"
+
+[[bin]]
+name = "teneo-bot"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+chrono = "0.4"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "net", "io-util", "sync"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
+wreq = { version = "0.16", default-features = false, features = ["json", "gzip", "socks", "cookies", "tokio-rt"] }
+wreq-util = "0.2"
+
+[profile.release]
+opt-level = 2
+strip = true
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
