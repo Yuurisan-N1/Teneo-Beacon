@@ -1,10 +1,16 @@
 use anyhow::Result;
 
+use crate::net::proxy::{pick, Proxy};
 use crate::support::env::Account;
 use crate::support::log::{lg, lr, unit_word};
 use crate::Ctx;
 
-pub async fn ensure(ctx: &Ctx, account: &Account) -> Result<Vec<String>> {
+pub async fn ensure(
+    ctx: &Ctx,
+    account: &Account,
+    proxies: &[Proxy],
+    counter: &mut usize,
+) -> Result<Vec<String>> {
     let mut keys = {
         let guard = ctx.store.lock().unwrap();
         guard.keys(&account.email)
@@ -19,7 +25,9 @@ pub async fn ensure(ctx: &Ctx, account: &Account) -> Result<Vec<String>> {
     }
     let missing = account.nodes - keys.len();
     for _ in 0..missing {
-        match crate::node::register::create(ctx, &account.email).await {
+        let proxy = pick(proxies, *counter);
+        *counter += 1;
+        match crate::node::register::create(ctx, &account.email, proxy).await {
             Ok(key) => {
                 {
                     let mut guard = ctx.store.lock().unwrap();
